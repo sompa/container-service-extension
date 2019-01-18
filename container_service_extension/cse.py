@@ -11,6 +11,7 @@ from pyvcloud.vcd.exceptions import EntityNotFoundException
 from container_service_extension.config import get_validated_config
 from container_service_extension.config import check_cse_installation
 from container_service_extension.config import generate_sample_config
+from container_service_extension.config import generate_sample_config_with_pks_details
 from container_service_extension.config import install_cse
 from container_service_extension.service import Service
 
@@ -99,10 +100,21 @@ def version(ctx):
 
 @cli.command('sample', short_help='generate sample configuration')
 @click.pass_context
-def sample(ctx):
+@click.option(
+    '-pks',
+    '--with-pks',
+    'with_pks',
+    is_flag=True,
+    required=False,
+    default=False,
+    help="If '--with-pks' flag is set, CSE sample config file is "
+         "generated along with pks details in it.")
+def sample(ctx, with_pks):
     """Generate sample CSE configuration."""
-    click.secho(generate_sample_config())
-
+    if with_pks:
+        click.secho(generate_sample_config_with_pks_details())
+    else:
+        click.secho(generate_sample_config())
 
 @cli.command(short_help="Checks that config file is valid. Can also check that"
                         " CSE is installed according to config file.")
