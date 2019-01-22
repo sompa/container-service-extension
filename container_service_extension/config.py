@@ -25,26 +25,25 @@ from vsphere_guest_run.vsphere import VSphere
 
 from container_service_extension.exceptions import AmqpConnectionError
 from container_service_extension.exceptions import AmqpError
-from container_service_extension.logger import configure_install_logger
 from container_service_extension.logger import INSTALL_LOGGER as LOGGER
 from container_service_extension.logger import INSTALL_LOG_FILEPATH
+from container_service_extension.logger import configure_install_logger
+from container_service_extension.utils import EXCHANGE_TYPE
+from container_service_extension.utils import SYSTEM_ORG_NAME
 from container_service_extension.utils import catalog_exists
 from container_service_extension.utils import catalog_item_exists
 from container_service_extension.utils import check_file_permissions
 from container_service_extension.utils import check_keys_and_value_types
 from container_service_extension.utils import create_and_share_catalog
 from container_service_extension.utils import download_file
-from container_service_extension.utils import EXCHANGE_TYPE
 from container_service_extension.utils import get_data_file
 from container_service_extension.utils import get_org
-# from container_service_extension.utils import get_validated_pks_config
 from container_service_extension.utils import get_vdc
 from container_service_extension.utils import get_vsphere
-from container_service_extension.utils import SYSTEM_ORG_NAME
 from container_service_extension.utils import upload_ova_to_catalog
 from container_service_extension.utils import vgr_callback
-from container_service_extension.utils import wait_until_tools_ready
 from container_service_extension.utils import wait_for_catalog_item_to_resolve
+from container_service_extension.utils import wait_until_tools_ready
 
 # used for creating temp vapp
 TEMP_VAPP_NETWORK_ADAPTER_TYPE = 'vmxnet3'
@@ -209,27 +208,10 @@ SAMPLE_CONFIG_WITH_PKS = {**SAMPLE_AMQP_CONFIG, **SAMPLE_VCD_CONFIG,
                  **SAMPLE_BROKER_CONFIG}
 
 
-def generate_sample_config():
+def generate_sample_config(with_pks):
     """Generates a sample config file for cse.
 
-    :return: sample config as dict.
-
-    :rtype: dict
-    """
-    sample_config = yaml.safe_dump(SAMPLE_AMQP_CONFIG,
-                                   default_flow_style=False) + '\n'
-    sample_config += yaml.safe_dump(SAMPLE_VCD_CONFIG,
-                                    default_flow_style=False) + '\n'
-    sample_config += yaml.safe_dump(SAMPLE_VCS_CONFIG,
-                                    default_flow_style=False) + '\n'
-    sample_config += yaml.safe_dump(SAMPLE_SERVICE_CONFIG,
-                                    default_flow_style=False) + '\n'
-    sample_config += yaml.safe_dump(SAMPLE_BROKER_CONFIG,
-                                    default_flow_style=False) + '\n'
-    return sample_config.strip() + '\n'
-
-def generate_sample_config_with_pks_details():
-    """Generates a sample config file for cse with pks details.
+    :param bool with_pks: flag to generate config with pks configs.
 
     :return: sample config as dict.
 
@@ -241,19 +223,21 @@ def generate_sample_config_with_pks_details():
                                     default_flow_style=False) + '\n'
     sample_config += yaml.safe_dump(SAMPLE_VCS_CONFIG,
                                     default_flow_style=False) + '\n'
-    sample_config += yaml.safe_dump(SAMPLE_PKS_CONFIG_FILE_LOCATION,
-                                    default_flow_style=False) + '\n'
+    if with_pks:
+        sample_config += yaml.safe_dump(SAMPLE_PKS_CONFIG_FILE_LOCATION,
+                                        default_flow_style=False) + '\n'
+        sample_pks_config = yaml.safe_dump(SAMPLE_PKS_CONFIG)
+        with open('pks.yaml', 'w') as f:
+            f.write(sample_pks_config)
     sample_config += yaml.safe_dump(SAMPLE_SERVICE_CONFIG,
                                     default_flow_style=False) + '\n'
     sample_config += yaml.safe_dump(SAMPLE_BROKER_CONFIG,
                                     default_flow_style=False) + '\n'
-    sample_pks_config = yaml.safe_dump(SAMPLE_PKS_CONFIG)
-    with open('pks.yaml', 'w') as f:
-        f.write(sample_pks_config)
     return sample_config.strip() + '\n'
 
-def get_validated_config(config_file_name):
+def get_validated_config(config_file_name, pks_config_file_name):
     """Gets the config file as a dictionary and checks for validity.
+
 
     Ensures that all properties exist and all values are the expected type.
     Checks that AMQP connection is available, and vCD/VCs are valid.
@@ -261,6 +245,8 @@ def get_validated_config(config_file_name):
     config file.
 
     :param str config_file_name: path to config file.
+
+    :param str pks_config_file_name: path to pks config file.
 
     :return: CSE config.
 
@@ -276,10 +262,14 @@ def get_validated_config(config_file_name):
         config = yaml.safe_load(config_file)
 
     click.secho(f"Validating config file '{config_file_name}'", fg='yellow')
-    if config['pks_details']:
-        check_keys_and_value_types(config, SAMPLE_CONFIG_WITH_PKS, location='config file')
-        pks_config = get_validated_pks_config(config['pks_details']['config'])
-
+    if config.get('pks_details', None) is not None:
+        check_keys_and_value_types(config, SAMPLE_CONFIG_WITH_PKS, location='pks config file')
+        check_file_permissions(pks_config_file_name)
+        with open(pks_config_file_name) as pks_config_file:
+            pks_config = yaml.safe_load(pks_config_file)
+        click.secho(f"Validating pks config file '{pks_config_file_name}'", fg='yellow')
+        check_keys_and_value_types(pks_config, SAMPLE_PKS_CONFIG, location='pks config file')
+        click.secho(f"Pks Config file '{pks_config_file_name}' is valid", fg='green')
     else:
         check_keys_and_value_types(config, SAMPLE_CONFIG, location='config file')
     validate_amqp_config(config['amqp'])
@@ -290,28 +280,6 @@ def get_validated_config(config_file_name):
                                location="config file 'service' section")
     click.secho(f"Config file '{config_file_name}' is valid", fg='green')
     return config
-
-def get_validated_pks_config(pks_config_file_name):
-
-    """Gets the pks config file as a dictionary and checks for validity.
-
-        Ensures that all properties exist and all values are the expected type.
-        Does not guarantee that CSE has been installed according to this
-        config file.
-
-        :param str pks_config_file_name: path to pks config file.
-
-        :return: CSE PKS config.
-
-        :rtype: dict
-    """
-    check_file_permissions(pks_config_file_name)
-    with open(pks_config_file_name) as config_file:
-        pks_config = yaml.safe_load(config_file)
-    click.secho(f"Validating pks config file '{pks_config_file_name}'", fg='yellow')
-    check_keys_and_value_types(pks_config, SAMPLE_PKS_CONFIG, location='pks config file')
-    return pks_config
-
 
 def validate_amqp_config(amqp_dict):
     """Ensures that 'amqp' section of config is correct.
