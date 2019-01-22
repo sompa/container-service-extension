@@ -11,7 +11,6 @@ from pyvcloud.vcd.exceptions import EntityNotFoundException
 from container_service_extension.config import get_validated_config
 from container_service_extension.config import check_cse_installation
 from container_service_extension.config import generate_sample_config
-from container_service_extension.config import generate_sample_config_with_pks_details
 from container_service_extension.config import install_cse
 from container_service_extension.service import Service
 
